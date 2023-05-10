@@ -15,7 +15,7 @@ NUMBER_OF_GAMES_PER_SIMULATION = 1   # type 0 to make it endless
 PLAYER_ID = 90
 
 # Rules
-ONLY_ONE_PLAYER_CAN_WIN = False
+ONLY_ONE_PLAYER_CAN_WIN = True
 
 
 class Card:
@@ -28,9 +28,6 @@ class Card:
         self.changeColor = changes_color
         self.points = points
         self.owner = owner
-        
-
-
 
 class Player:
     def __init__(self, cards, id):
@@ -123,6 +120,7 @@ def drawCards(deck, amount, owner):
             cardsDrawn.append(deck.pop(0))
     else:
         for _ in range(amount):
+            deck[0].owner = owner
             deck[0].used = 0
             cardsDrawn.append(deck.pop(0))
 
@@ -154,6 +152,9 @@ def skipTurn(table, playerList):
 
 def canPlayerPlay(hand, table, playerList):
 
+    if len(table.cards) < 1:
+        return False
+    
     # in case we must not draw
     if table.lastPlacementBy != playerList[table.turn].id and table.to_be_drawn == 0:
         for card in hand:
@@ -204,16 +205,73 @@ def playCard(hand, table, playerList):
 
     
 def changeColor(playerList, table):
-    return random.randint(0,3)
+    possibilities = []
+
+    if len(playerList[table.turn].cards) > 0:
+
+        for card in playerList[table.turn].cards:
+            possibilities.append(card.color)
+
+        return possibilities[random.randrange(0, len(possibilities))]
+    else:
+        return random.randint(0,3)
+
+def logic(table, playerList, hand):
+    while canPlayerPlay(hand, table, playerList):
+        
+        if not canPlayerPlay(hand, table, playerList):
+            break
+
+        index = playCard(hand, table, playerList)
+        
+        if table.turn == PLAYER_ID:
+            hand_str = "[CARDS] "
+            for card in hand:
+                hand_str += str(hand.index(card))+" card: [" + str(card.value) + "  -  " + str(card.color) + "] /// "
+            #print(hand_str)                        
+            #print("Suggested: ",index)
+            index = int(input("pick index: "))
+
+        #print(table.direction)
+        print("["+str(table.turn)+"] Played: ",hand[index].value," - Color: ",hand[index].color)
+        #print("Player (a): ", table.turn,"Top card: ",table.cards[len(table.cards) - 1].value, " - Color: ",table.cards[len(table.cards) - 1].color, "    who: ",table.lastPlacementBy)
+        table.lastPlacementBy = playerList[table.turn].id
+
+        # check if direction must be reversed
+        if hand[index].value == "Reverse" and table.cards[len(table.cards) - 1].used == 0:
+            hand[index].used = 1
+            table.direction = not table.direction
+
+        # check if direction must be reversed
+        if hand[index].value == "Reverse":
+            table.reverses += 1
+        
+        # check if player must be skipped
+        if hand[index].value == "Skip":
+            table.turns_to_be_skipped += 1
+
+        # add to the bank
+        if hand[index].draw_amount > 0:
+            table.to_be_drawn += hand[index].draw_amount
 
 
+        # put used card on the card pile
+        table.cards.append(hand.pop(index))
+        playerList[table.turn].cards = hand
+
+        # check if color must be changed
+        if table.cards[len(table.cards) - 1].color == 4:
+            table.cards[len(table.cards) - 1].color = changeColor(playerList,table)
+        
+        
+        return table, playerList, hand
 
 def startGame():
 
     simulation = 0
     
     # Run the simulation
-    while simulation < NUMBER_OF_GAMES_PER_SIMULATION and NUMBER_OF_GAMES_PER_SIMULATION != 0 or (NUMBER_OF_GAMES_PER_SIMULATION == 0):
+    while (simulation < NUMBER_OF_GAMES_PER_SIMULATION and NUMBER_OF_GAMES_PER_SIMULATION != 0) or (NUMBER_OF_GAMES_PER_SIMULATION == 0):
 
         playerList = []
         
@@ -232,10 +290,16 @@ def startGame():
         game_running = True
         winners = 0
 
-        while game_running or (winners > 0 and ONLY_ONE_PLAYER_CAN_WIN):
+
+        while (ONLY_ONE_PLAYER_CAN_WIN and winners == 0) or (not ONLY_ONE_PLAYER_CAN_WIN and winners < NUMBER_OF_PLAYERS-1):
+
+            # failsafe
+            if len(table.deck) == 0 and len(table.cards) == 0:
+                game_running = False
+                break
 
             # check if draw pile is empty
-            if len(table.deck) == PLAYER_ID:
+            if len(table.deck) == 0:
                 # Shuffle the discard pile and make it the new draw pile
                 temp = table.cards.pop(0)
                 table.deck = shuffleDeck(table.cards)
@@ -253,9 +317,7 @@ def startGame():
 
             hand = playerList[table.turn].cards
 
-            print("-------------------------------- Alive: ",count , " --------- must_be_picked: ",table.to_be_drawn)
-
-            combo = 0
+            #print("-------------------------------- Alive: ",count , " --------- must_be_picked: ",table.to_be_drawn)
 
             # handle skip turn
             while(table.turns_to_be_skipped > 0 and table.lastPlacementBy != table.turn):
@@ -265,54 +327,7 @@ def startGame():
             # IF the current player has a playable card:
             if canPlayerPlay(hand, table, playerList):
                 
-                while canPlayerPlay(hand, table, playerList):
-                    
-                    if not canPlayerPlay(hand, table, playerList):
-                        break
-
-                    index = playCard(hand, table, playerList)
-                    
-                    if table.turn == PLAYER_ID:
-                        hand_str = "[CARDS] "
-                        for card in hand:
-                            hand_str += str(hand.index(card))+" card: [" + str(card.value) + "  -  " + str(card.color) + "] /// "
-                        print(hand_str)                        
-                        print("Suggested: ",index)
-                        index = int(input("pick index: "))
-
-                    print(table.direction)
-                    print("["+str(table.turn)+"] Played: ",hand[index].value," - Color: ",hand[index].color)
-                    #print("Player (a): ", table.turn,"Top card: ",table.cards[len(table.cards) - 1].value, " - Color: ",table.cards[len(table.cards) - 1].color, "    who: ",table.lastPlacementBy)
-                    table.lastPlacementBy = playerList[table.turn].id
-
-                    # check if direction must be reversed
-                    if hand[index].value == "Reverse" and table.cards[len(table.cards) - 1].used == 0:
-                        hand[index].used = 1
-                        table.direction = not table.direction
-
-                    # check if direction must be reversed
-                    if hand[index].value == "Reverse":
-                        table.reverses += 1
-                    
-                    # check if player must be skipped
-                    if hand[index].value == "Skip":
-                        table.turns_to_be_skipped += 1
-
-                    # add to the bank
-                    if hand[index].draw_amount > 0:
-                        table.to_be_drawn += hand[index].draw_amount
-
-
-                    # put used card on the card pile
-                    table.cards.append(hand.pop(index))
-                    playerList[table.turn].cards = hand
-
-                    # check if color must eb changed
-                    if table.cards[len(table.cards) - 1].color == 4:
-                        table.cards[len(table.cards) - 1].color = changeColor(playerList,table)
-                    
-                    
-                    combo += 1
+                table, playerList, hand = logic(table, playerList, hand)
 
 
             else:
@@ -325,7 +340,7 @@ def startGame():
                     draw_amount = table.to_be_drawn
                     table.to_be_drawn = 0
 
-                print("["+str(table.turn)+"] Drew: ",draw_amount)
+                #print("["+str(table.turn)+"] Drew: ",draw_amount)
 
                 drawn = drawCards(table.deck, draw_amount, playerList[table.turn])
                 for card in drawn:
@@ -336,51 +351,7 @@ def startGame():
                 # IF the drawn card is playable:
                 if canPlayerPlay(hand, table, playerList):
                     
-                    while canPlayerPlay(hand, table, playerList):
-                        
-                        index = playCard(hand, table, playerList)
-                        
-                        if table.turn == PLAYER_ID:
-                            hand_str = "[CARDS] "
-                            for card in hand:
-                                hand_str += str(hand.index(card))+" card: [" + str(card.value) + "  -  " + str(card.color) + "] /// "
-                            print(hand_str)                            
-                            print("Suggested: ",index)
-                            index = int(input("pick index2: "))
-                        
-                        print(table.direction)
-                        print("["+str(table.turn)+"] Played: ",hand[index].value," - Color: ",hand[index].color)
-                        #print("Player (a): ", table.turn,"Top card: ",table.cards[len(table.cards) - 1].value, " - Color: ",table.cards[len(table.cards) - 1].color, "    who: ",table.lastPlacementBy)
-                        table.lastPlacementBy = playerList[table.turn].id
-
-                        # check if direction must be reversed
-                        if hand[index].value == "Reverse" and table.cards[len(table.cards) - 1].used == 0:
-                            hand[index].used = 1
-                            table.direction = not table.direction
-
-                        # check if direction must be reversed
-                        if hand[index].value == "Reverse":
-                            table.reverses += 1
-                        
-                        # check if player must be skipped
-                        if hand[index].value == "Skip":
-                            table.turns_to_be_skipped += 1
-
-                        # add to the bank
-                        if hand[index].draw_amount > 0:
-                            table.to_be_drawn += hand[index].draw_amount
-
-
-                        # put used card on the card pile
-                        table.cards.append(hand.pop(index))
-                        playerList[table.turn].cards = hand
-
-                        # check if color must eb changed
-                        if table.cards[len(table.cards) - 1].color == 4:
-                            table.cards[len(table.cards) - 1].color = changeColor(playerList,table)
-                        
-            
-            
+                    table, playerList, hand = logic(table, playerList, hand)
 
             # handle Reverses
             while (table.reverses > 0 and table.lastPlacementBy != table.turn):
@@ -400,18 +371,10 @@ def startGame():
                 winners += 1
                 playerList[table.turn].points = points
                 playerList[table.turn].isAlive = 0
-                print("Winners", winners)
+                print("Winner: ", winners)
                 
 
             table = skipTurn(table, playerList) # end turn
-
-            # Stop the game if:
-            # the deck has no cards left, everyone won except one, or we specified one maximum winnner and we have a winner
-            if winners >= NUMBER_OF_PLAYERS-1:
-                game_running = False
-                break
-
-            #table = skipTurn(table, playerList)
 
         if NUMBER_OF_GAMES_PER_SIMULATION > 0:
             simulation += 1
@@ -420,6 +383,8 @@ def startGame():
 
 # implement threads
 startGame()
+
+
 
 """
 Rules: cards can only be placed if they match the same color or type, exception given to colorless cards
