@@ -4,13 +4,15 @@
 # Tested on Windows 10
 
 import random
+import numpy as np
+import pickle
 
 NUMBER_OF_DECKS = 1
 NUMBER_OF_PLAYERS = 4
 NUMBER_OF_INITIAL_CARDS = 7
 
-NUMBER_OF_SIMULTANEOUS_GAMES = 1        # (aka threads)
-NUMBER_OF_GAMES_PER_SIMULATION = 1   # type 0 to make it endless
+NUMBER_OF_THREADS = 1
+NUMBER_OF_SIMULATIONS_PER_THREAD = 53000   # type 0 to make it endless
 
 PLAYER_ID = 90
 
@@ -28,6 +30,14 @@ class Card:
         self.changeColor = changes_color
         self.points = points
         self.owner = owner
+    
+    def __getstate__(self):
+        # Return a dictionary of the card's attributes to be pickled
+        return self.__dict__
+
+    def __setstate__(self, state):
+        # Restore the card's attributes from the pickled state
+        self.__dict__.update(state)    
 
 class Player:
     def __init__(self, cards, id):
@@ -193,7 +203,7 @@ def playCard(hand, table, playerList):
         for card in hand:
             if card.value == value:
                 playableCards.append(card)
-                continue
+
 
     if len(playableCards) > 0:
         if len(playableCards) > 1:
@@ -201,6 +211,7 @@ def playCard(hand, table, playerList):
             return hand.index(index)
         else:
             return hand.index(playableCards[0])
+        
     return 9999
 
     
@@ -216,6 +227,12 @@ def changeColor(playerList, table):
     else:
         return random.randint(0,3)
 
+def canCardBePlayed(table, hand, index, playerList):
+        card = hand[index]
+        hand = []
+        hand.append(card)
+        return canPlayerPlay(hand, table, playerList) # will return true of false
+
 def logic(table, playerList, hand):
     while canPlayerPlay(hand, table, playerList):
         
@@ -224,6 +241,12 @@ def logic(table, playerList, hand):
 
         index = playCard(hand, table, playerList)
         
+        # check if selected card is playsble
+        # when ai will be implemented, it will probably try to use an illegal card
+        if not canCardBePlayed(table, hand, index, playerList):
+            #print("Illegal move")
+            continue
+
         if table.turn == PLAYER_ID:
             hand_str = "[CARDS] "
             for card in hand:
@@ -233,7 +256,7 @@ def logic(table, playerList, hand):
             index = int(input("pick index: "))
 
         #print(table.direction)
-        print("["+str(table.turn)+"] Played: ",hand[index].value," - Color: ",hand[index].color)
+        #print("["+str(table.turn)+"] Played: ",hand[index].value," - Color: ",hand[index].color)
         #print("Player (a): ", table.turn,"Top card: ",table.cards[len(table.cards) - 1].value, " - Color: ",table.cards[len(table.cards) - 1].color, "    who: ",table.lastPlacementBy)
         table.lastPlacementBy = playerList[table.turn].id
 
@@ -266,12 +289,13 @@ def logic(table, playerList, hand):
         
         return table, playerList, hand
 
+avg_turns = []
 def startGame():
 
     simulation = 0
-    
+
     # Run the simulation
-    while (simulation < NUMBER_OF_GAMES_PER_SIMULATION and NUMBER_OF_GAMES_PER_SIMULATION != 0) or (NUMBER_OF_GAMES_PER_SIMULATION == 0):
+    while (simulation < NUMBER_OF_SIMULATIONS_PER_THREAD and NUMBER_OF_SIMULATIONS_PER_THREAD != 0) or (NUMBER_OF_SIMULATIONS_PER_THREAD == 0):
 
         playerList = []
         
@@ -287,15 +311,21 @@ def startGame():
         spawnPlayers(deck, playerList)
 
         # Run the game
-        game_running = True
         winners = 0
+        turns = 0
 
+        # Pickle data
+        game_data = {}
 
+        game_data["Simulation_"+str(simulation)] = { 'Turns': {} }
+
+        
         while (ONLY_ONE_PLAYER_CAN_WIN and winners == 0) or (not ONLY_ONE_PLAYER_CAN_WIN and winners < NUMBER_OF_PLAYERS-1):
-
+            
             # failsafe
             if len(table.deck) == 0 and len(table.cards) == 0:
-                game_running = False
+                # Delete current simulation info from data
+                game_data["Simulation_"+str(simulation)]["Turns"] = {}
                 break
 
             # check if draw pile is empty
@@ -324,34 +354,59 @@ def startGame():
                 table.turns_to_be_skipped += -1
                 table = skipTurn(table, playerList) # end turn
 
+            # Player's turn starts here
+            turns += 1
+
+            turn_data = {
+                "player_id": table.turn,
+                "player_cards_begin_turn": [vars(card) for card in playerList[table.turn].cards],
+                "player_cards_used": [],
+                "player_cards_end_turn": [],
+                "player_drew_amount": 0
+            }
             # IF the current player has a playable card:
             if canPlayerPlay(hand, table, playerList):
                 
                 table, playerList, hand = logic(table, playerList, hand)
+                
+                hand_data = [vars(card) for card in hand]
+                hold_tuples = [tuple(d.items()) for d in turn_data["player_cards_begin_turn"]]
+                hand_tuples = [tuple(d.items()) for d in hand_data]
+
+                # Find removed elements (present in hold_arr but not in hand_diff)
+                removed = [dict(t) for t in set(hold_tuples) - set(hand_tuples)]
+                turn_data["player_cards_used"].append(removed)
 
 
             else:
                 # Draw
 
-                # If the player can't respond to a draw card, then this will handle Draw +2 very well
+                # If the player can't respond to a draw card, then this will handle Draw +2, +4, +10, ... very well
                 draw_amount = 1
                 if table.to_be_drawn > 0:
-                    
                     draw_amount = table.to_be_drawn
                     table.to_be_drawn = 0
 
-                #print("["+str(table.turn)+"] Drew: ",draw_amount)
-
-                drawn = drawCards(table.deck, draw_amount, playerList[table.turn])
+                turn_data["player_drew_amount"] = draw_amount
+                drawn = drawCards(table.deck, draw_amount, table.turn)
                 for card in drawn:
                     hand.append(card)
-                
+
                 playerList[table.turn].cards = hand
                 
                 # IF the drawn card is playable:
                 if canPlayerPlay(hand, table, playerList):
-                    
                     table, playerList, hand = logic(table, playerList, hand)
+
+                    
+                    hand_data = [vars(card) for card in hand]
+                    hold_tuples = [tuple(d.items()) for d in turn_data["player_cards_begin_turn"]]
+                    hand_tuples = [tuple(d.items()) for d in hand_data]
+
+                    # Find removed elements (present in hold_arr but not in hand_diff)
+                    removed = [dict(t) for t in set(hold_tuples) - set(hand_tuples)]
+                    turn_data["player_cards_used"].append(removed)
+
 
             # handle Reverses
             while (table.reverses > 0 and table.lastPlacementBy != table.turn):
@@ -371,26 +426,31 @@ def startGame():
                 winners += 1
                 playerList[table.turn].points = points
                 playerList[table.turn].isAlive = 0
-                print("Winner: ", winners)
+                #print("Winner: ", winners)
                 
 
             table = skipTurn(table, playerList) # end turn
 
-        if NUMBER_OF_GAMES_PER_SIMULATION > 0:
+            # store turn data
+            turn_data["player_cards_end_turn"] = [vars(card) for card in playerList[table.turn].cards]
+            game_data["Simulation_"+str(simulation)]["Turns"][turns] = turn_data
+
+        avg_turns.append(turns)
+
+        if NUMBER_OF_SIMULATIONS_PER_THREAD > 0:
             simulation += 1
 
-
+    # Store all game data into file
+    with open("data.pickle", "wb") as file:
+        # Write the data to the file
+        pickle.dump(game_data, file)
 
 # implement threads
 startGame()
 
 
+print("Avg turns: ",np.mean(avg_turns), " - Minutes: ",np.mean(avg_turns) * 2 / 60)
 
-"""
-Rules: cards can only be placed if they match the same color or type, exception given to colorless cards
-
-Extra notes: Games will be played with 4 players, one of them is a cheater, meaning it has access to all players decks, the other 3 players will have to make a prediction
-"""
 
 
 """
@@ -399,4 +459,6 @@ Things done so far:
     spawn players
     give each player 7 cards
     implement canPlay logic
+
+    implement game_data in pickle format
 """
