@@ -12,9 +12,9 @@ NUMBER_OF_PLAYERS = 4
 NUMBER_OF_INITIAL_CARDS = 7
 
 NUMBER_OF_THREADS = 1
-NUMBER_OF_SIMULATIONS_PER_THREAD = 53000   # type 0 to make it endless
+NUMBER_OF_SIMULATIONS_PER_THREAD = 1   # type 0 to make it endless
 
-PLAYER_ID = 90
+PLAYER_ID = 900
 
 # Rules
 ONLY_ONE_PLAYER_CAN_WIN = True
@@ -92,6 +92,7 @@ def generateDeck():
 
                 for value in action_cards:
                     if value == "Draw Two":
+                        # (color, type, number, draw_amount, changes_color, points, owner):
                         deck.append(Card(index_of_color, 1, value, 2, 0, 20, 99))
                         deck.append(Card(index_of_color, 1, value, 2, 0, 20, 99))
                     else:
@@ -233,6 +234,7 @@ def canCardBePlayed(table, hand, index, playerList):
         hand.append(card)
         return canPlayerPlay(hand, table, playerList) # will return true of false
 
+
 def logic(table, playerList, hand):
     while canPlayerPlay(hand, table, playerList):
         
@@ -241,7 +243,7 @@ def logic(table, playerList, hand):
 
         index = playCard(hand, table, playerList)
         
-        # check if selected card is playsble
+        # check if selected card is playable
         # when ai will be implemented, it will probably try to use an illegal card
         if not canCardBePlayed(table, hand, index, playerList):
             #print("Illegal move")
@@ -251,8 +253,8 @@ def logic(table, playerList, hand):
             hand_str = "[CARDS] "
             for card in hand:
                 hand_str += str(hand.index(card))+" card: [" + str(card.value) + "  -  " + str(card.color) + "] /// "
-            #print(hand_str)                        
-            #print("Suggested: ",index)
+            print(hand_str)                        
+            print("Suggested: ",index)
             index = int(input("pick index: "))
 
         #print(table.direction)
@@ -293,6 +295,9 @@ avg_turns = []
 def startGame():
 
     simulation = 0
+    
+    # Pickle data
+    game_data = {}
 
     # Run the simulation
     while (simulation < NUMBER_OF_SIMULATIONS_PER_THREAD and NUMBER_OF_SIMULATIONS_PER_THREAD != 0) or (NUMBER_OF_SIMULATIONS_PER_THREAD == 0):
@@ -301,6 +306,12 @@ def startGame():
         
         deck = shuffleDeck(generateDeck())
         
+        # Important check
+        if NUMBER_OF_PLAYERS * NUMBER_OF_INITIAL_CARDS > len(deck):
+            print("[ERROR] NUMBER_OF_PLAYERS * NUMBER_OF_INITIAL_CARDS > len(deck)")
+            break
+
+
         # Determine the order of play (default is clockwise)
         table = Table(deck)
         
@@ -313,9 +324,6 @@ def startGame():
         # Run the game
         winners = 0
         turns = 0
-
-        # Pickle data
-        game_data = {}
 
         game_data["Simulation_"+str(simulation)] = { 'Turns': {} }
 
@@ -435,7 +443,7 @@ def startGame():
             turn_data["player_cards_end_turn"] = [vars(card) for card in playerList[table.turn].cards]
             game_data["Simulation_"+str(simulation)]["Turns"][turns] = turn_data
 
-        avg_turns.append(turns)
+        #avg_turns.append(turns)
 
         if NUMBER_OF_SIMULATIONS_PER_THREAD > 0:
             simulation += 1
@@ -449,7 +457,7 @@ def startGame():
 startGame()
 
 
-print("Avg turns: ",np.mean(avg_turns), " - Minutes: ",np.mean(avg_turns) * 2 / 60)
+#print("Avg turns: ",np.mean(avg_turns), " - Minutes: ",np.mean(avg_turns) * 2 / 60)
 
 
 
