@@ -3,24 +3,32 @@
 # Uses threads to simulate multiple games
 # Tested on Windows 10
 
+"""
+TrueSkill analysis (100k games):
+- Random moves with mu=30 and sigma=8, and multiple people can win, leads to trueskill --> 28 - 38
+- Random moves with mu=30 and sigma=8, and only 1 person can win, leads to trueskill --> 25 - 33
+"""
+
 import random
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
-import json
+
+import trueskill
+from trueskill import Rating, rate
 
 NUMBER_OF_DECKS = 1
 NUMBER_OF_PLAYERS = 4
 NUMBER_OF_INITIAL_CARDS = 7
 
 NUMBER_OF_THREADS = 1
-NUMBER_OF_SIMULATIONS_PER_THREAD = 100   # type 0 to make it endless
+NUMBER_OF_SIMULATIONS_PER_THREAD = 100000   # type 0 to make it endless
 
 PLAYER_ID = 900
 
 # Rules
-ONLY_ONE_PLAYER_CAN_WIN = False
+ONLY_ONE_PLAYER_CAN_WIN = True
 
 
 class Card:
@@ -49,7 +57,8 @@ class Player:
         self.playableCards = 0
         self.number_of_cards = len(cards)
         self.score = 0
-        self.trueskill = 0
+        self.trueskill = Rating(mu=30, sigma=8)
+        self.wins = 0
         self.isCheater = 0      # cheater AI will be able to see everyone's hand
 
 # This class named Table will contain the played cards and who played them    
@@ -73,6 +82,9 @@ print("------------")
 print("------------")
 print("------------")
 
+
+
+#    GAME UTILITY
 def generateDeck():
     deck = []
     
@@ -111,14 +123,11 @@ def generateDeck():
 
     return deck
 
-
-
 def shuffleDeck(deck):
     for i in range(len(deck)):
         rand = random.randint(0, len(deck)-1)
         deck[i], deck[rand] = deck[rand], deck[i]
     return deck
-
 
 def drawCards(deck, amount, owner):
     cardsDrawn = []
@@ -142,7 +151,6 @@ def drawCards(deck, amount, owner):
 
     return cardsDrawn
 
-
 def spawnPlayers(table):
     for i in range(NUMBER_OF_PLAYERS):
         table.alive[i] = Player([], i)
@@ -151,33 +159,11 @@ def spawnPlayers(table):
 
 def dealCards(table):
     for i in range(NUMBER_OF_PLAYERS):
-        table.alive[i] = (Player(drawCards(table.deck, NUMBER_OF_INITIAL_CARDS + 1, i), i))
+        table.alive[i].cards = drawCards(table.deck, NUMBER_OF_INITIAL_CARDS + 1, i)
     
     return table
 
-
-
-def skipTurn_old(table, playerList):
-    amount = len(playerList) - 1
-    # 0 - clockwise
-    # 1 - counter clockwise
-    if table.direction:
-        if table.turn < amount:
-            table.turn += 1
-        else:
-            table.turn = 0
-    else:
-        if table.turn == 0:
-            table.turn = amount
-        else:
-            table.turn -= 1
-    return table
-
-
-def skipTurn2(table):
-    remaining_players = 1
-
-    
+#    GAME LOGIC
 def skipTurn(table, currentTurn):
     remaining_players = table.alive.keys()
     
@@ -196,9 +182,6 @@ def skipTurn(table, currentTurn):
     table.turn = keys_list[next_index]
 
     return table
-
-
-
 
 def canPlayerPlay(hand, table):
 
@@ -220,7 +203,6 @@ def canPlayerPlay(hand, table):
                 return True
                     
     return False
-
 
 def playCard(hand, table):
     playableCards = []
@@ -251,10 +233,10 @@ def playCard(hand, table):
             return hand.index(index)
         else:
             return hand.index(playableCards[0])
-        
-    return 9999
-
     
+    
+    return 9999
+ 
 def changeColor(table):
     possibilities = []
 
@@ -272,7 +254,6 @@ def canCardBePlayed(table, hand, index):
         hand = []
         hand.append(card)
         return canPlayerPlay(hand, table) # will return true of false
-
 
 def logic(table, hand):
     while canPlayerPlay(hand, table):
@@ -330,7 +311,48 @@ def logic(table, hand):
         
         return table, hand
 
-avg_turns = []
+
+
+
+
+def update_trueskill(table, winning_player_id):
+    # Extract the players from the table
+    players = list(table.alive.values())
+
+    # Create a TrueSkill environment
+    env = trueskill.TrueSkill()
+
+    # Create TrueSkill rating objects for each player
+    ratings = []
+    for player in players:
+        player_rating = env.create_rating(player.trueskill)
+        player_rating_group = [player_rating]  # Wrap the rating in a list
+        ratings.append(player_rating_group)
+
+    # Find the index of the winning player
+    winning_player_index = [player.id for player in players].index(winning_player_id)
+
+    # Create a list of ranks for all players
+    ranks = [0] * len(players)
+    ranks[winning_player_index] = 1
+
+    # Update the TrueSkill ratings based on the outcome
+    new_ratings = env.rate(ratings, ranks=ranks)
+
+    # Update the TrueSkill score for each player
+    for i, player in enumerate(players):
+        player.trueskill = new_ratings[i][0].mu
+        #print(player.trueskill )
+
+    # Update the table
+    table.alive = {player.id: player for player in players}
+
+    # Return the updated table
+    return table
+
+
+
+
 def startGame():
 
     simulation = 0
@@ -364,6 +386,8 @@ def startGame():
         # Reset players
         for i in table.alive:
             table.alive[i].cards = []
+            table.alive[i].playableCards = 0
+            table.alive[i].number_of_cards = 0
         
         # Create deck
         table.deck = shuffleDeck(generateDeck())
@@ -371,6 +395,7 @@ def startGame():
         # Important check
         if NUMBER_OF_PLAYERS * NUMBER_OF_INITIAL_CARDS > len(table.deck):
             print("[ERROR] NUMBER_OF_PLAYERS * NUMBER_OF_INITIAL_CARDS > len(deck)")
+            print("Either lower NUMBER_OF_PLAYERS or NUMBER_OF_INITIAL_CARDS")
             break
         
         # Place the top card of the draw pile face-up in the middle of the table : table.top_card
@@ -387,7 +412,7 @@ def startGame():
         #game_data["Simulation_"+str(simulation)] = { 'Turns': {} }
 
         
-        while (ONLY_ONE_PLAYER_CAN_WIN and winners == 0) or (not ONLY_ONE_PLAYER_CAN_WIN and winners < NUMBER_OF_PLAYERS-1):
+        while True:
             
             # failsafe
             if len(table.deck) == 0 and len(table.cards) == 0:
@@ -401,8 +426,6 @@ def startGame():
                 temp = table.cards.pop(0)
                 table.deck = shuffleDeck(table.cards)
                 table.cards.append(temp)
-            
-            
 
             hand = table.alive[table.turn].cards
 
@@ -447,10 +470,15 @@ def startGame():
                 table.reverses += -1
 
             turn_backup = table.turn
+            
             table = skipTurn(table, table.turn) # end turn
+            
+            #print(len(table.alive[turn_backup].cards))
             # IF a player has no cards left:
-            if (len(table.alive[turn_backup].cards) == 0):
+            if (len(table.alive[turn_backup].cards) <= 0):
                 # Game over
+                table.alive[turn_backup].wins += 1
+                #print(table.alive[turn_backup].wins)
                 # Player with no cards left wins
                 points = 0
                 for player in table.alive:
@@ -458,29 +486,39 @@ def startGame():
                         for card in table.alive[player].cards:
                             points += card.points
                 
-                winners += 1
-                table.alive[turn_backup].points = points
+                table.alive[turn_backup].score = points
                 
+                #increase trueskill
+                table = update_trueskill(table, turn_backup)
+
                 # move player into dead players
                 player = table.alive[turn_backup]
                 table.dead[turn_backup] = player
 
-                # Remove the current player from alive players
+                # remove the current player from alive players
                 del table.alive[turn_backup]
-
-                #print("Winner: ", winners, "  WInner is: ", turn_backup)
-                #print(table.alive)
-                
-            
-            
+                winners += 1            
 
             # store turn data
             #game_data["Simulation_"+str(simulation)]["Turns"][turns] = turn_data
+                    # Check for the end of the simulation
+            if (ONLY_ONE_PLAYER_CAN_WIN and winners >= 1) or (not ONLY_ONE_PLAYER_CAN_WIN and winners >= NUMBER_OF_PLAYERS - 1):
+                winners = 0
+                break
 
         #avg_turns.append(turns)
 
         if NUMBER_OF_SIMULATIONS_PER_THREAD > 0:
             simulation += 1
+        
+
+    
+    # END of simulation
+    table.alive.update(table.dead)
+    table.dead.clear()
+
+    for player in table.alive:
+        print("Player: ",player," - TR: ",table.alive[player].trueskill," - Wins: ",table.alive[player].wins," - Win%: ",table.alive[player].wins / NUMBER_OF_SIMULATIONS_PER_THREAD * 100)
 
     # Store all game data into file
     #with open("data.parquet", "wb") as file:
