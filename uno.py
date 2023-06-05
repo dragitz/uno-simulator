@@ -5,19 +5,22 @@
 
 import random
 import numpy as np
-import pickle
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+import json
 
 NUMBER_OF_DECKS = 1
 NUMBER_OF_PLAYERS = 4
 NUMBER_OF_INITIAL_CARDS = 7
 
 NUMBER_OF_THREADS = 1
-NUMBER_OF_SIMULATIONS_PER_THREAD = 1   # type 0 to make it endless
+NUMBER_OF_SIMULATIONS_PER_THREAD = 100   # type 0 to make it endless
 
 PLAYER_ID = 900
 
 # Rules
-ONLY_ONE_PLAYER_CAN_WIN = True
+ONLY_ONE_PLAYER_CAN_WIN = False
 
 
 class Card:
@@ -46,13 +49,15 @@ class Player:
         self.playableCards = 0
         self.number_of_cards = len(cards)
         self.score = 0
-        self.isAlive = 1        # 0 = won
+        self.trueskill = 0
         self.isCheater = 0      # cheater AI will be able to see everyone's hand
 
 # This class named Table will contain the played cards and who played them    
 class Table:
     def __init__(self, deck):
         self.deck = deck
+        self.alive = {}
+        self.dead = {}
         self.cards = []
         self.turn = 0
         self.direction = True      # 0 clockwise , 1 = counter clockwise
@@ -138,12 +143,21 @@ def drawCards(deck, amount, owner):
     return cardsDrawn
 
 
-def spawnPlayers(deck, playerList):
+def spawnPlayers(table):
     for i in range(NUMBER_OF_PLAYERS):
-        playerList.append(Player(drawCards(deck, NUMBER_OF_INITIAL_CARDS + 1, i), i))
+        table.alive[i] = Player([], i)
+    
+    return table
+
+def dealCards(table):
+    for i in range(NUMBER_OF_PLAYERS):
+        table.alive[i] = (Player(drawCards(table.deck, NUMBER_OF_INITIAL_CARDS + 1, i), i))
+    
+    return table
 
 
-def skipTurn(table, playerList):
+
+def skipTurn_old(table, playerList):
     amount = len(playerList) - 1
     # 0 - clockwise
     # 1 - counter clockwise
@@ -157,17 +171,42 @@ def skipTurn(table, playerList):
             table.turn = amount
         else:
             table.turn -= 1
-    
-    
     return table
 
-def canPlayerPlay(hand, table, playerList):
+
+def skipTurn2(table):
+    remaining_players = 1
+
+    
+def skipTurn(table, currentTurn):
+    remaining_players = table.alive.keys()
+    
+    keys_list = list(remaining_players)
+
+    # Get the current index
+    current_index = keys_list.index(currentTurn)
+
+    # Get the next index
+    next_index = 0
+    if table.direction:
+        next_index = (current_index + 1) % len(keys_list)
+    else:
+        next_index = (current_index - 1) % len(keys_list)
+    
+    table.turn = keys_list[next_index]
+
+    return table
+
+
+
+
+def canPlayerPlay(hand, table):
 
     if len(table.cards) < 1:
         return False
     
     # in case we must not draw
-    if table.lastPlacementBy != playerList[table.turn].id and table.to_be_drawn == 0:
+    if table.lastPlacementBy != table.alive[table.turn].id and table.to_be_drawn == 0:
         for card in hand:
             if card.type == 2:
                 return True
@@ -183,13 +222,13 @@ def canPlayerPlay(hand, table, playerList):
     return False
 
 
-def playCard(hand, table, playerList):
+def playCard(hand, table):
     playableCards = []
 
     value = table.cards[len(table.cards) - 1].value
     color = table.cards[len(table.cards) - 1].color
 
-    if table.lastPlacementBy != playerList[table.turn].id and table.to_be_drawn == 0:    
+    if table.lastPlacementBy != table.alive[table.turn].id and table.to_be_drawn == 0:    
         for card in hand:
             if card.type == 2:
                 playableCards.append(card)
@@ -216,36 +255,36 @@ def playCard(hand, table, playerList):
     return 9999
 
     
-def changeColor(playerList, table):
+def changeColor(table):
     possibilities = []
 
-    if len(playerList[table.turn].cards) > 0:
+    if len(table.alive[table.turn].cards) > 0:
 
-        for card in playerList[table.turn].cards:
+        for card in table.alive[table.turn].cards:
             possibilities.append(card.color)
 
         return possibilities[random.randrange(0, len(possibilities))]
     else:
         return random.randint(0,3)
 
-def canCardBePlayed(table, hand, index, playerList):
+def canCardBePlayed(table, hand, index):
         card = hand[index]
         hand = []
         hand.append(card)
-        return canPlayerPlay(hand, table, playerList) # will return true of false
+        return canPlayerPlay(hand, table) # will return true of false
 
 
-def logic(table, playerList, hand):
-    while canPlayerPlay(hand, table, playerList):
+def logic(table, hand):
+    while canPlayerPlay(hand, table):
         
-        if not canPlayerPlay(hand, table, playerList):
+        if not canPlayerPlay(hand, table):
             break
 
-        index = playCard(hand, table, playerList)
+        index = playCard(hand, table)
         
         # check if selected card is playable
         # when ai will be implemented, it will probably try to use an illegal card
-        if not canCardBePlayed(table, hand, index, playerList):
+        if not canCardBePlayed(table, hand, index):
             #print("Illegal move")
             continue
 
@@ -260,7 +299,7 @@ def logic(table, playerList, hand):
         #print(table.direction)
         #print("["+str(table.turn)+"] Played: ",hand[index].value," - Color: ",hand[index].color)
         #print("Player (a): ", table.turn,"Top card: ",table.cards[len(table.cards) - 1].value, " - Color: ",table.cards[len(table.cards) - 1].color, "    who: ",table.lastPlacementBy)
-        table.lastPlacementBy = playerList[table.turn].id
+        table.lastPlacementBy = table.alive[table.turn].id
 
         # check if direction must be reversed
         if hand[index].value == "Reverse" and table.cards[len(table.cards) - 1].used == 0:
@@ -282,14 +321,14 @@ def logic(table, playerList, hand):
 
         # put used card on the card pile
         table.cards.append(hand.pop(index))
-        playerList[table.turn].cards = hand
+        table.alive[table.turn].cards = hand
 
         # check if color must be changed
         if table.cards[len(table.cards) - 1].color == 4:
-            table.cards[len(table.cards) - 1].color = changeColor(playerList,table)
+            table.cards[len(table.cards) - 1].color = changeColor(table)
         
         
-        return table, playerList, hand
+        return table, hand
 
 avg_turns = []
 def startGame():
@@ -297,35 +336,55 @@ def startGame():
     simulation = 0
     
     # Pickle data
-    game_data = {}
+    #game_data = {}
+
+
+    # Declare table
+    table = Table([])
+
+    # create players
+    table = spawnPlayers(table)
+    
 
     # Run the simulation
     while (simulation < NUMBER_OF_SIMULATIONS_PER_THREAD and NUMBER_OF_SIMULATIONS_PER_THREAD != 0) or (NUMBER_OF_SIMULATIONS_PER_THREAD == 0):
 
-        playerList = []
+        # Reset table
+        table.deck = []
+        table.alive.update(table.dead)
+        table.dead.clear()
+        table.cards = []
+        table.turn = 0
+        table.direction = True      # 0 clockwise , 1 = counter clockwise
+        table.lastPlacementBy = -1 # Who is the player that placed the top card
+        table.turns_to_be_skipped = 0
+        table.reverses = 0
+        table.to_be_drawn = 0
         
-        deck = shuffleDeck(generateDeck())
+        # Reset players
+        for i in table.alive:
+            table.alive[i].cards = []
+        
+        # Create deck
+        table.deck = shuffleDeck(generateDeck())
         
         # Important check
-        if NUMBER_OF_PLAYERS * NUMBER_OF_INITIAL_CARDS > len(deck):
+        if NUMBER_OF_PLAYERS * NUMBER_OF_INITIAL_CARDS > len(table.deck):
             print("[ERROR] NUMBER_OF_PLAYERS * NUMBER_OF_INITIAL_CARDS > len(deck)")
             break
-
-
-        # Determine the order of play (default is clockwise)
-        table = Table(deck)
         
         # Place the top card of the draw pile face-up in the middle of the table : table.top_card
         table.cards.append(table.deck.pop(0))
 
         # Deal 7 cards to each player
-        spawnPlayers(deck, playerList)
+        table = dealCards(table)
+        
 
         # Run the game
         winners = 0
         turns = 0
 
-        game_data["Simulation_"+str(simulation)] = { 'Turns': {} }
+        #game_data["Simulation_"+str(simulation)] = { 'Turns': {} }
 
         
         while (ONLY_ONE_PLAYER_CAN_WIN and winners == 0) or (not ONLY_ONE_PLAYER_CAN_WIN and winners < NUMBER_OF_PLAYERS-1):
@@ -333,7 +392,7 @@ def startGame():
             # failsafe
             if len(table.deck) == 0 and len(table.cards) == 0:
                 # Delete current simulation info from data
-                game_data["Simulation_"+str(simulation)]["Turns"] = {}
+                #game_data["Simulation_"+str(simulation)]["Turns"] = {}
                 break
 
             # check if draw pile is empty
@@ -344,48 +403,24 @@ def startGame():
                 table.cards.append(temp)
             
             
-            # if current player has finished, skip turn
-            if playerList[table.turn].isAlive == 0:
-                table = skipTurn(table, playerList)
-                continue
-            
-            count = 0
-            for player in playerList:
-                count += player.isAlive
 
-            hand = playerList[table.turn].cards
+            hand = table.alive[table.turn].cards
 
             #print("-------------------------------- Alive: ",count , " --------- must_be_picked: ",table.to_be_drawn)
 
             # handle skip turn
             while(table.turns_to_be_skipped > 0 and table.lastPlacementBy != table.turn):
                 table.turns_to_be_skipped += -1
-                table = skipTurn(table, playerList) # end turn
+                table = skipTurn(table, table.turn) # end turn
 
             # Player's turn starts here
             turns += 1
 
-            turn_data = {
-                "player_id": table.turn,
-                "player_cards_begin_turn": [vars(card) for card in playerList[table.turn].cards],
-                "player_cards_used": [],
-                "player_cards_end_turn": [],
-                "player_drew_amount": 0
-            }
             # IF the current player has a playable card:
-            if canPlayerPlay(hand, table, playerList):
+            if canPlayerPlay(hand, table):
                 
-                table, playerList, hand = logic(table, playerList, hand)
+                table, hand = logic(table, hand)
                 
-                hand_data = [vars(card) for card in hand]
-                hold_tuples = [tuple(d.items()) for d in turn_data["player_cards_begin_turn"]]
-                hand_tuples = [tuple(d.items()) for d in hand_data]
-
-                # Find removed elements (present in hold_arr but not in hand_diff)
-                removed = [dict(t) for t in set(hold_tuples) - set(hand_tuples)]
-                turn_data["player_cards_used"].append(removed)
-
-
             else:
                 # Draw
 
@@ -395,25 +430,15 @@ def startGame():
                     draw_amount = table.to_be_drawn
                     table.to_be_drawn = 0
 
-                turn_data["player_drew_amount"] = draw_amount
                 drawn = drawCards(table.deck, draw_amount, table.turn)
                 for card in drawn:
                     hand.append(card)
 
-                playerList[table.turn].cards = hand
+                table.alive[table.turn].cards = hand
                 
                 # IF the drawn card is playable:
-                if canPlayerPlay(hand, table, playerList):
-                    table, playerList, hand = logic(table, playerList, hand)
-
-                    
-                    hand_data = [vars(card) for card in hand]
-                    hold_tuples = [tuple(d.items()) for d in turn_data["player_cards_begin_turn"]]
-                    hand_tuples = [tuple(d.items()) for d in hand_data]
-
-                    # Find removed elements (present in hold_arr but not in hand_diff)
-                    removed = [dict(t) for t in set(hold_tuples) - set(hand_tuples)]
-                    turn_data["player_cards_used"].append(removed)
+                if canPlayerPlay(hand, table):
+                    table, hand = logic(table, hand)
 
 
             # handle Reverses
@@ -421,27 +446,36 @@ def startGame():
                 table.direction = not table.direction
                 table.reverses += -1
 
+            turn_backup = table.turn
+            table = skipTurn(table, table.turn) # end turn
             # IF a player has no cards left:
-            if (len(playerList[table.turn].cards) == 0):
+            if (len(table.alive[turn_backup].cards) == 0):
                 # Game over
                 # Player with no cards left wins
                 points = 0
-                for player in playerList:
-                    if player != playerList[table.turn]:
-                        for card in player.cards:
+                for player in table.alive:
+                    if table.alive[player] != table.alive[turn_backup]:
+                        for card in table.alive[player].cards:
                             points += card.points
                 
                 winners += 1
-                playerList[table.turn].points = points
-                playerList[table.turn].isAlive = 0
-                #print("Winner: ", winners)
+                table.alive[turn_backup].points = points
                 
+                # move player into dead players
+                player = table.alive[turn_backup]
+                table.dead[turn_backup] = player
 
-            table = skipTurn(table, playerList) # end turn
+                # Remove the current player from alive players
+                del table.alive[turn_backup]
+
+                #print("Winner: ", winners, "  WInner is: ", turn_backup)
+                #print(table.alive)
+                
+            
+            
 
             # store turn data
-            turn_data["player_cards_end_turn"] = [vars(card) for card in playerList[table.turn].cards]
-            game_data["Simulation_"+str(simulation)]["Turns"][turns] = turn_data
+            #game_data["Simulation_"+str(simulation)]["Turns"][turns] = turn_data
 
         #avg_turns.append(turns)
 
@@ -449,9 +483,22 @@ def startGame():
             simulation += 1
 
     # Store all game data into file
-    with open("data.pickle", "wb") as file:
-        # Write the data to the file
-        pickle.dump(game_data, file)
+    #with open("data.parquet", "wb") as file:
+    # Convert column names to strings
+
+    """
+    json_string = json.dumps(game_data)
+    print(json_string)
+    game_data_str = {str(key): value for key, value in game_data.items()}
+    # Create DataFrame
+    df = pd.DataFrame(game_data_str)
+    # Define Parquet file path
+    parquet_file = "game_data.parquet"
+    # Write DataFrame to Parquet
+    table = pa.Table.from_pandas(df)
+    pq.write_table(table, parquet_file)
+    """
+
 
 # implement threads
 startGame()
