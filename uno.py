@@ -9,6 +9,15 @@ TrueSkill analysis (100k games):
 - Random moves with mu=30 and sigma=8, and only 1 person can win, leads to trueskill --> 25 - 33
 """
 
+"""
+    TODO:
+        - Implement (efficient) data collection with periodical saving
+        - Create deep learning model
+        - Compute TR of model
+        - Create a pygame interface for playing vs bots
+        - Implement TCP to play with friends via LAN (Radmin, Hamachi, ...)
+"""
+
 import random
 import numpy as np
 import pandas as pd
@@ -22,7 +31,7 @@ NUMBER_OF_DECKS = 1
 NUMBER_OF_PLAYERS = 4
 NUMBER_OF_INITIAL_CARDS = 7
 
-NUMBER_OF_THREADS = 1
+NUMBER_OF_THREADS = 1   # to be implemented
 NUMBER_OF_SIMULATIONS_PER_THREAD = 100000   # type 0 to make it endless
 
 PLAYER_ID = 900
