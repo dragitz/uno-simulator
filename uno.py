@@ -27,6 +27,7 @@ TrueSkill analysis (500k games):
 import numpy as np
 import pandas as pd
 import random
+import timeit
 import config
 
 import tensorflow as tf
@@ -97,8 +98,7 @@ NUMBER_OF_DECKS = config.NUMBER_OF_DECKS
 NUMBER_OF_PLAYERS = config.NUMBER_OF_PLAYERS
 NUMBER_OF_INITIAL_CARDS = config.NUMBER_OF_INITIAL_CARDS
 
-NUMBER_OF_THREADS = config.NUMBER_OF_THREADS   # to be implemented
-NUMBER_OF_SIMULATIONS_PER_THREAD = config.NUMBER_OF_SIMULATIONS_PER_THREAD  # type 0 to make it endless
+TOTAL_SIMULATIONS = config.TOTAL_SIMULATIONS
 
 PLAYER_ID = config.PLAYER_ID
 
@@ -135,7 +135,7 @@ def startGame():
     table = spawnPlayers(table)
     
     # Run the simulation
-    while (simulation < NUMBER_OF_SIMULATIONS_PER_THREAD and NUMBER_OF_SIMULATIONS_PER_THREAD != 0) or (NUMBER_OF_SIMULATIONS_PER_THREAD == 0):
+    while (simulation < TOTAL_SIMULATIONS and TOTAL_SIMULATIONS != 0) or (TOTAL_SIMULATIONS == 0):
 
         game_data = {
             'game_turn': [],
@@ -171,7 +171,7 @@ def startGame():
         
         # Create deck
         table.deck = shuffleDeck(generateDeck())
-        
+
         # Important check
         if NUMBER_OF_PLAYERS * NUMBER_OF_INITIAL_CARDS > len(table.deck):
             print("[ERROR] NUMBER_OF_PLAYERS * NUMBER_OF_INITIAL_CARDS > len(deck)")
@@ -185,18 +185,19 @@ def startGame():
         # Deal 7 cards to each player
         table = dealCards(table)
 
-        game_data["game_turn"].append(0)
-        game_data["top_card_id"].append(table.cards[len(table.cards) - 1].card_id)
-        game_data["top_card_value"].append(str(table.cards[len(table.cards) - 1].value))
-        game_data["top_card_color"].append(table.cards[len(table.cards) - 1].color)
-        game_data["top_card_type"].append(table.cards[len(table.cards) - 1].type)
-        game_data["top_card_draw_amount"].append(table.cards[len(table.cards) - 1].draw_amount)
-        game_data["top_card_points"].append(table.cards[len(table.cards) - 1].points)
-        game_data["player_id"].append(table.lastPlacementBy)
-        game_data["drawn_cards"].append(0)
-        game_data["has_won"].append(0)
-        game_data["p_count"].append(NUMBER_OF_PLAYERS)
-        game_data["dir"].append(table.direction)
+        if ENABLE_LOGGING:
+            game_data["game_turn"].append(0)
+            game_data["top_card_id"].append(table.cards[len(table.cards) - 1].card_id)
+            game_data["top_card_value"].append(str(table.cards[len(table.cards) - 1].value))
+            game_data["top_card_color"].append(table.cards[len(table.cards) - 1].color)
+            game_data["top_card_type"].append(table.cards[len(table.cards) - 1].type)
+            game_data["top_card_draw_amount"].append(table.cards[len(table.cards) - 1].draw_amount)
+            game_data["top_card_points"].append(table.cards[len(table.cards) - 1].points)
+            game_data["player_id"].append(table.lastPlacementBy)
+            game_data["drawn_cards"].append(0)
+            game_data["has_won"].append(0)
+            game_data["p_count"].append(NUMBER_OF_PLAYERS)
+            game_data["dir"].append(table.direction)
 
 
         # Run the game
@@ -209,8 +210,8 @@ def startGame():
             if len(table.deck) == 0 and len(table.cards) == 0:
                 break
 
-            # check if draw pile is empty
-            if len(table.deck) == 0:
+            # check if draw pile is empty ( must be set to 1 otherwise we get array issues)
+            if len(table.deck) <= 1:
                 # Shuffle the discard pile and make it the new draw pile
                 temp = table.cards.pop(0)
                 table.deck = shuffleDeck(table.cards)
@@ -237,19 +238,20 @@ def startGame():
 
                 table, hand = logic(table, hand)
                 table.alive[table.turn].performance += 1
-
-                game_data["game_turn"].append(turns)
-                game_data["top_card_id"].append(table.cards[len(table.cards) - 1].card_id)
-                game_data["top_card_value"].append(str(table.cards[len(table.cards) - 1].value))
-                game_data["top_card_color"].append(table.cards[len(table.cards) - 1].color)
-                game_data["top_card_type"].append(table.cards[len(table.cards) - 1].type)
-                game_data["top_card_draw_amount"].append(table.cards[len(table.cards) - 1].draw_amount)
-                game_data["top_card_points"].append(table.cards[len(table.cards) - 1].points)
-                game_data["player_id"].append(table.turn)
-                game_data["drawn_cards"].append(0) 
-                game_data["has_won"].append(0) 
-                game_data["p_count"].append(p_count)
-                game_data["dir"].append(table.direction)
+                
+                if ENABLE_LOGGING:
+                    game_data["game_turn"].append(turns)
+                    game_data["top_card_id"].append(table.cards[len(table.cards) - 1].card_id)
+                    game_data["top_card_value"].append(str(table.cards[len(table.cards) - 1].value))
+                    game_data["top_card_color"].append(table.cards[len(table.cards) - 1].color)
+                    game_data["top_card_type"].append(table.cards[len(table.cards) - 1].type)
+                    game_data["top_card_draw_amount"].append(table.cards[len(table.cards) - 1].draw_amount)
+                    game_data["top_card_points"].append(table.cards[len(table.cards) - 1].points)
+                    game_data["player_id"].append(table.turn)
+                    game_data["drawn_cards"].append(0) 
+                    game_data["has_won"].append(0) 
+                    game_data["p_count"].append(p_count)
+                    game_data["dir"].append(table.direction)
 
             else:
                 # Draw
@@ -273,19 +275,20 @@ def startGame():
 
                     table, hand = logic(table, hand)
                     table.alive[table.turn].performance += 1
-
-                game_data["game_turn"].append(turns)
-                game_data["top_card_id"].append(table.cards[len(table.cards) - 1].card_id)
-                game_data["top_card_value"].append(str(table.cards[len(table.cards) - 1].value))
-                game_data["top_card_color"].append(table.cards[len(table.cards) - 1].color)
-                game_data["top_card_type"].append(table.cards[len(table.cards) - 1].type)
-                game_data["top_card_draw_amount"].append(table.cards[len(table.cards) - 1].draw_amount)
-                game_data["top_card_points"].append(table.cards[len(table.cards) - 1].points)
-                game_data["player_id"].append(table.turn)
-                game_data["drawn_cards"].append(draw_amount) 
-                game_data["has_won"].append(0) 
-                game_data["p_count"].append(p_count)
-                game_data["dir"].append(table.direction)
+                
+                if ENABLE_LOGGING:
+                    game_data["game_turn"].append(turns)
+                    game_data["top_card_id"].append(table.cards[len(table.cards) - 1].card_id)
+                    game_data["top_card_value"].append(str(table.cards[len(table.cards) - 1].value))
+                    game_data["top_card_color"].append(table.cards[len(table.cards) - 1].color)
+                    game_data["top_card_type"].append(table.cards[len(table.cards) - 1].type)
+                    game_data["top_card_draw_amount"].append(table.cards[len(table.cards) - 1].draw_amount)
+                    game_data["top_card_points"].append(table.cards[len(table.cards) - 1].points)
+                    game_data["player_id"].append(table.turn)
+                    game_data["drawn_cards"].append(draw_amount) 
+                    game_data["has_won"].append(0) 
+                    game_data["p_count"].append(p_count)
+                    game_data["dir"].append(table.direction)
                 
             turn_backup = table.turn
             
@@ -325,14 +328,14 @@ def startGame():
                 del table.alive[turn_backup]
                 winners += 1
 
-            # Check for the end of the simulation
+            # end conditions
             if (ONLY_ONE_PLAYER_CAN_WIN and winners > 0) or (
                 not ONLY_ONE_PLAYER_CAN_WIN and winners >= NUMBER_OF_PLAYERS - 1) or (
                 ENABLE_MAX_TURNS and turns > MAX_TURNS):
                 
                 break
 
-        if NUMBER_OF_SIMULATIONS_PER_THREAD > 0:
+        if TOTAL_SIMULATIONS > 0:
             simulation += 1
 
         if ((ONLY_LOG_WINNING_GAMES and winners > 0) or (not ONLY_LOG_WINNING_GAMES)) and ENABLE_LOGGING:
@@ -344,8 +347,9 @@ def startGame():
     table.dead.clear()
 
     for player in table.alive:
-        print("Player: ",player," - TR: ",table.alive[player].trueskill," - Wins: ",table.alive[player].wins,"  Perf: ",table.alive[player].performance)
+        print("Player: ",player," - TS: ",table.alive[player].trueskill," - Wins: ",table.alive[player].wins,"  Perf: ",table.alive[player].performance)
 
+#startGame()
 
-# implement threads
-startGame()
+execution_time = timeit.timeit(startGame, number=1)
+print("Execution time:", execution_time, "seconds")

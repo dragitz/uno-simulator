@@ -1,23 +1,26 @@
+
+# Game settings, may affect simulation time
 NUMBER_OF_DECKS = 1
 NUMBER_OF_PLAYERS = 6
 NUMBER_OF_INITIAL_CARDS = 7
 
-NUMBER_OF_THREADS = 1   # to be implemented
-NUMBER_OF_SIMULATIONS_PER_THREAD = 1000  # type 0 to make it endless -- how many simulations you would like to run
+SUBDIVIDE_SIMULATIONS = False # to be implemented
+TOTAL_SIMULATIONS = 10  # type 0 to make it endless
 
-ONLY_ONE_PLAYER_CAN_WIN = False
+# This can speed up the simulation by a lot !  1.5 to 2.5 faster if set to True
+# It will affect the quality of the data
+ONLY_ONE_PLAYER_CAN_WIN = True
 
 
-# Logging
-# This section will mostly have an impact on the generation/saving of logs
+## Logging
+## This section will mostly have an impact on the generation/saving of logs
 ENABLE_LOGGING = True
 
-ENABLE_MAX_TURNS = True
-MAX_TURNS = 50
+# Limit the amount of turns per simulation. May increase simulation speed, but lowers the amount of data that can be logged
+ENABLE_MAX_TURNS = False
+MAX_TURNS = 100
 
-ENABLE_MAX_SAMPLES = False # to be implemented
-MAX_SAMPLES = 100000
-
+# Automatically filter out games that have no winners
 ONLY_LOG_WINNING_GAMES = True
 
 # debug

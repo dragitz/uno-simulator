@@ -71,8 +71,7 @@ NUMBER_OF_DECKS = config.NUMBER_OF_DECKS
 NUMBER_OF_PLAYERS = config.NUMBER_OF_PLAYERS
 NUMBER_OF_INITIAL_CARDS = config.NUMBER_OF_INITIAL_CARDS
 
-NUMBER_OF_THREADS = config.NUMBER_OF_THREADS   # to be implemented
-NUMBER_OF_SIMULATIONS_PER_THREAD = config.NUMBER_OF_SIMULATIONS_PER_THREAD  # type 0 to make it endless
+TOTAL_SIMULATIONS = config.TOTAL_SIMULATIONS
 
 PLAYER_ID = config.PLAYER_ID
 
@@ -89,11 +88,11 @@ def logData(data, table_number):
         ('game_turn', pa.int64()),
         ('top_card_id', pa.int64()),
         ('top_card_value', pa.string()),
+        ('player_id', pa.int64()),
         ('top_card_color', pa.int64()),
         ('top_card_type', pa.int64()),
         ('top_card_draw_amount', pa.int64()),
         ('top_card_points', pa.int64()),
-        ('player_id', pa.int64()),
         ('drawn_cards', pa.int64()),
         ('has_won', pa.int64()),
         ('p_count', pa.int64()),
@@ -142,9 +141,7 @@ def generateDeck():
                     else:
                         deck.append(Card(index_of_color, 1, index_of_type, value, 0, 0, 20, default_owner))
                         deck.append(Card(index_of_color, 1, index_of_type, value, 0, 0, 20, default_owner))
-                        deck.append(Card(index_of_color, 1, index_of_type, value, 0, 0, 20, default_owner))
-                        deck.append(Card(index_of_color, 1, index_of_type, value, 0, 0, 20, default_owner))
-                        deck.append(Card(index_of_color, 1, index_of_type, value, 0, 0, 20, default_owner))
+                        
 
         for _ in range(4):
             # (color, type, action_type, value, draw_amount, changes_color, points, owner)
