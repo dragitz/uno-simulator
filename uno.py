@@ -16,32 +16,46 @@ TrueSkill analysis (500k games):
 
 """
     TODO:
-        - Implement (efficient) data collection with periodical saving
+        x Implement (efficient) data collection with periodical saving
         - Create deep learning model
-        - Compute TR of model
+        x Compute TR of model
         - Create a pygame interface for playing vs bots
         - Implement TCP to play with friends via LAN (Radmin, Hamachi, ...)
 """
 
+
+import numpy as np
+import pandas as pd
+import random
 import config
 
-from game_utility import generateDeck, shuffleDeck, drawCards, spawnPlayers, dealCards
-from game_logic import skipTurn, canPlayerPlay, playCard, changeColor, canCardBePlayed, logic, update_trueskill
+import tensorflow as tf
+from tensorflow import keras
+
+from game_utility import generateDeck, shuffleDeck, drawCards, spawnPlayers, dealCards, logData
+from game_logic import skipTurn, canPlayerPlay, logic, update_trueskill
 from trueskill import Rating
 
 
 
 class Card:
-    def __init__(self, color, type, number, draw_amount, changes_color, points, owner):
-        self.color = color      # 0 red, 1 green, 2 blue, 3 yellow, 4 none
+    def __init__(self, color, type, action_type, value, draw_amount, changes_color, points, owner):
+        self.color = color      # 1 red, 2 green, 3 blue, 4 yellow, 5 none
         self.type = type        # 0 number, 1 action, 2 wildcard
-        self.value = number    # holds the card name
+        self.action_type = action_type # 0 none, 1 "Draw Two", 2 "Skip", 3 "Reverse"
         self.draw_amount = draw_amount  # 0 default
+        self.value = value     # holds the card name
+        self.card_id = int(str(color)+str(type)+str(action_type)+str(points)) # this number will be fed into the neural network
         self.used = 0
         self.changeColor = changes_color
         self.points = points
         self.owner = owner
     
+    # Card_id structure
+    # Draw two, yellow = 411
+    # Skip, green = 212
+    # Wild card
+
     def __getstate__(self):
         # Return a dictionary of the card's attributes to be pickled
         return self.__dict__
@@ -51,15 +65,16 @@ class Card:
         self.__dict__.update(state)    
 
 class Player:
-    def __init__(self, cards, id):
+    def __init__(self, cards, id, AI_LEVEL):
         self.id = id
         self.cards = cards      # array
-        self.playableCards = 0
         self.number_of_cards = len(cards)
         self.score = 0
         self.trueskill = Rating(mu=30, sigma=8)
         self.wins = 0
         self.isCheater = 0      # cheater AI will be able to see everyone's hand
+        self.AI_LEVEL = AI_LEVEL       # 0 = basic ;; 1 = tensorflow ;; 2 = debug (player)
+        self.performance = 0
 
 # This class named Table will contain the played cards and who played them    
 class Table:
@@ -91,21 +106,27 @@ PLAYER_ID = config.PLAYER_ID
 ONLY_ONE_PLAYER_CAN_WIN = config.ONLY_ONE_PLAYER_CAN_WIN
 
 
+# Logging
+ENABLE_LOGGING = config.ENABLE_LOGGING
+ONLY_LOG_WINNING_GAMES = config.ONLY_LOG_WINNING_GAMES
+
+ENABLE_MAX_TURNS = config.ENABLE_MAX_TURNS
+MAX_TURNS = config.MAX_TURNS
+
+
+
 print("------------")
 print("------------")
 print("------------")
 print("------------")
 print("------------")
+
 
 
 
 def startGame():
 
     simulation = 0
-    
-    # Pickle data
-    #game_data = {}
-
 
     # Declare table
     table = Table([])
@@ -113,9 +134,23 @@ def startGame():
     # create players
     table = spawnPlayers(table)
     
-
     # Run the simulation
     while (simulation < NUMBER_OF_SIMULATIONS_PER_THREAD and NUMBER_OF_SIMULATIONS_PER_THREAD != 0) or (NUMBER_OF_SIMULATIONS_PER_THREAD == 0):
+
+        game_data = {
+            'game_turn': [],
+            'top_card_id': [],
+            'top_card_value': [],
+            'top_card_color': [],
+            'top_card_type': [],
+            'top_card_draw_amount': [],
+            'top_card_points': [],
+            'player_id': [],
+            'drawn_cards': [],
+            'has_won': [],
+            'p_count': [],
+            'dir': []
+        }
 
         # Reset table
         table.deck = []
@@ -132,7 +167,6 @@ def startGame():
         # Reset players
         for i in table.alive:
             table.alive[i].cards = []
-            table.alive[i].playableCards = 0
             table.alive[i].number_of_cards = 0
         
         # Create deck
@@ -146,24 +180,33 @@ def startGame():
         
         # Place the top card of the draw pile face-up in the middle of the table : table.top_card
         table.cards.append(table.deck.pop(0))
+        table.cards[0].used = 1
 
         # Deal 7 cards to each player
         table = dealCards(table)
-        
+
+        game_data["game_turn"].append(0)
+        game_data["top_card_id"].append(table.cards[len(table.cards) - 1].card_id)
+        game_data["top_card_value"].append(str(table.cards[len(table.cards) - 1].value))
+        game_data["top_card_color"].append(table.cards[len(table.cards) - 1].color)
+        game_data["top_card_type"].append(table.cards[len(table.cards) - 1].type)
+        game_data["top_card_draw_amount"].append(table.cards[len(table.cards) - 1].draw_amount)
+        game_data["top_card_points"].append(table.cards[len(table.cards) - 1].points)
+        game_data["player_id"].append(table.lastPlacementBy)
+        game_data["drawn_cards"].append(0)
+        game_data["has_won"].append(0)
+        game_data["p_count"].append(NUMBER_OF_PLAYERS)
+        game_data["dir"].append(table.direction)
+
 
         # Run the game
         winners = 0
         turns = 0
 
-        #game_data["Simulation_"+str(simulation)] = { 'Turns': {} }
-
-        
         while True:
             
             # failsafe
             if len(table.deck) == 0 and len(table.cards) == 0:
-                # Delete current simulation info from data
-                #game_data["Simulation_"+str(simulation)]["Turns"] = {}
                 break
 
             # check if draw pile is empty
@@ -175,21 +218,39 @@ def startGame():
 
             hand = table.alive[table.turn].cards
 
+            p_count = len(table.alive)
+            
             #print("-------------------------------- Alive: ",count , " --------- must_be_picked: ",table.to_be_drawn)
 
+
             # handle skip turn
-            while(table.turns_to_be_skipped > 0 and table.lastPlacementBy != table.turn):
-                table.turns_to_be_skipped += -1
+            while(table.turns_to_be_skipped > 0):
+                table.turns_to_be_skipped -= 1
                 table = skipTurn(table, table.turn) # end turn
 
             # Player's turn starts here
             turns += 1
 
+
             # IF the current player has a playable card:
             if canPlayerPlay(hand, table):
-                
+
                 table, hand = logic(table, hand)
-                
+                table.alive[table.turn].performance += 1
+
+                game_data["game_turn"].append(turns)
+                game_data["top_card_id"].append(table.cards[len(table.cards) - 1].card_id)
+                game_data["top_card_value"].append(str(table.cards[len(table.cards) - 1].value))
+                game_data["top_card_color"].append(table.cards[len(table.cards) - 1].color)
+                game_data["top_card_type"].append(table.cards[len(table.cards) - 1].type)
+                game_data["top_card_draw_amount"].append(table.cards[len(table.cards) - 1].draw_amount)
+                game_data["top_card_points"].append(table.cards[len(table.cards) - 1].points)
+                game_data["player_id"].append(table.turn)
+                game_data["drawn_cards"].append(0) 
+                game_data["has_won"].append(0) 
+                game_data["p_count"].append(p_count)
+                game_data["dir"].append(table.direction)
+
             else:
                 # Draw
 
@@ -199,6 +260,8 @@ def startGame():
                     draw_amount = table.to_be_drawn
                     table.to_be_drawn = 0
 
+                table.alive[table.turn].performance -= draw_amount
+
                 drawn = drawCards(table.deck, draw_amount, table.turn)
                 for card in drawn:
                     hand.append(card)
@@ -207,24 +270,36 @@ def startGame():
                 
                 # IF the drawn card is playable:
                 if canPlayerPlay(hand, table):
+
                     table, hand = logic(table, hand)
+                    table.alive[table.turn].performance += 1
 
-
-            # handle Reverses
-            while (table.reverses > 0 and table.lastPlacementBy != table.turn):
-                table.direction = not table.direction
-                table.reverses += -1
-
+                game_data["game_turn"].append(turns)
+                game_data["top_card_id"].append(table.cards[len(table.cards) - 1].card_id)
+                game_data["top_card_value"].append(str(table.cards[len(table.cards) - 1].value))
+                game_data["top_card_color"].append(table.cards[len(table.cards) - 1].color)
+                game_data["top_card_type"].append(table.cards[len(table.cards) - 1].type)
+                game_data["top_card_draw_amount"].append(table.cards[len(table.cards) - 1].draw_amount)
+                game_data["top_card_points"].append(table.cards[len(table.cards) - 1].points)
+                game_data["player_id"].append(table.turn)
+                game_data["drawn_cards"].append(draw_amount) 
+                game_data["has_won"].append(0) 
+                game_data["p_count"].append(p_count)
+                game_data["dir"].append(table.direction)
+                
             turn_backup = table.turn
             
             table = skipTurn(table, table.turn) # end turn
             
-            #print(len(table.alive[turn_backup].cards))
+            
             # IF a player has no cards left:
             if (len(table.alive[turn_backup].cards) <= 0):
+                
+                #table = skipTurn(table, table.turn) # end turn
+
                 # Game over
                 table.alive[turn_backup].wins += 1
-                #print(table.alive[turn_backup].wins)
+
                 # Player with no cards left wins
                 points = 0
                 for player in table.alive:
@@ -237,67 +312,40 @@ def startGame():
                 #increase trueskill
                 table = update_trueskill(table, turn_backup)
 
+                # change has_won of this current player
+                for index, player_id in enumerate(game_data["player_id"]):
+                    if turn_backup == player_id:
+                        game_data["has_won"][index] = 1
+
                 # move player into dead players
                 player = table.alive[turn_backup]
                 table.dead[turn_backup] = player
 
                 # remove the current player from alive players
                 del table.alive[turn_backup]
-                winners += 1            
+                winners += 1
 
-            # store turn data
-            #game_data["Simulation_"+str(simulation)]["Turns"][turns] = turn_data
-                    # Check for the end of the simulation
-            if (ONLY_ONE_PLAYER_CAN_WIN and winners >= 1) or (not ONLY_ONE_PLAYER_CAN_WIN and winners >= NUMBER_OF_PLAYERS - 1):
-                winners = 0
+            # Check for the end of the simulation
+            if (ONLY_ONE_PLAYER_CAN_WIN and winners > 0) or (
+                not ONLY_ONE_PLAYER_CAN_WIN and winners >= NUMBER_OF_PLAYERS - 1) or (
+                ENABLE_MAX_TURNS and turns > MAX_TURNS):
+                
                 break
-
-        #avg_turns.append(turns)
 
         if NUMBER_OF_SIMULATIONS_PER_THREAD > 0:
             simulation += 1
-        
 
-    
+        if ((ONLY_LOG_WINNING_GAMES and winners > 0) or (not ONLY_LOG_WINNING_GAMES)) and ENABLE_LOGGING:
+            logData(game_data, simulation)
+            pass
+
     # END of simulation
     table.alive.update(table.dead)
     table.dead.clear()
 
     for player in table.alive:
-        print("Player: ",player," - TR: ",table.alive[player].trueskill," - Wins: ",table.alive[player].wins," - Win%: ",table.alive[player].wins / NUMBER_OF_SIMULATIONS_PER_THREAD * 100)
-
-    # Store all game data into file
-    #with open("data.parquet", "wb") as file:
-    # Convert column names to strings
-
-    """
-    json_string = json.dumps(game_data)
-    print(json_string)
-    game_data_str = {str(key): value for key, value in game_data.items()}
-    # Create DataFrame
-    df = pd.DataFrame(game_data_str)
-    # Define Parquet file path
-    parquet_file = "game_data.parquet"
-    # Write DataFrame to Parquet
-    table = pa.Table.from_pandas(df)
-    pq.write_table(table, parquet_file)
-    """
+        print("Player: ",player," - TR: ",table.alive[player].trueskill," - Wins: ",table.alive[player].wins,"  Perf: ",table.alive[player].performance)
 
 
 # implement threads
 startGame()
-
-
-#print("Avg turns: ",np.mean(avg_turns), " - Minutes: ",np.mean(avg_turns) * 2 / 60)
-
-
-
-"""
-Things done so far:
-    create shuffled deck
-    spawn players
-    give each player 7 cards
-    implement canPlay logic
-
-    implement game_data in pickle format
-"""
