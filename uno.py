@@ -33,7 +33,7 @@ import config
 import tensorflow as tf
 from tensorflow import keras
 
-from game_utility import generateDeck, shuffleDeck, drawCards, spawnPlayers, dealCards, logData
+from game_utility import generateDeck, shuffleDeck, drawCards, spawnPlayers, dealCards, logData, get_game_data
 from game_logic import skipTurn, canPlayerPlay, logic, update_trueskill
 from trueskill import Rating
 
@@ -152,6 +152,7 @@ def startGame():
             'dir': []
         }
 
+        
         # Reset table
         table.deck = []
         table.alive.update(table.dead)
@@ -185,6 +186,10 @@ def startGame():
         # Deal 7 cards to each player
         table = dealCards(table)
 
+        # Run the game
+        winners = 0
+        turns = 0
+
         if ENABLE_LOGGING:
             game_data["game_turn"].append(0)
             game_data["top_card_id"].append(table.cards[len(table.cards) - 1].card_id)
@@ -199,10 +204,9 @@ def startGame():
             game_data["p_count"].append(NUMBER_OF_PLAYERS)
             game_data["dir"].append(table.direction)
 
-
-        # Run the game
-        winners = 0
-        turns = 0
+            for i in range(30):
+                game_data["card"+str(i)] = []
+                game_data["card"+str(i)].append(0)
 
         while True:
             
@@ -232,6 +236,7 @@ def startGame():
             # Player's turn starts here
             turns += 1
 
+            hand_data = hand
 
             # IF the current player has a playable card:
             if canPlayerPlay(hand, table):
@@ -240,18 +245,7 @@ def startGame():
                 table.alive[table.turn].performance += 1
                 
                 if ENABLE_LOGGING:
-                    game_data["game_turn"].append(turns)
-                    game_data["top_card_id"].append(table.cards[len(table.cards) - 1].card_id)
-                    game_data["top_card_value"].append(str(table.cards[len(table.cards) - 1].value))
-                    game_data["top_card_color"].append(table.cards[len(table.cards) - 1].color)
-                    game_data["top_card_type"].append(table.cards[len(table.cards) - 1].type)
-                    game_data["top_card_draw_amount"].append(table.cards[len(table.cards) - 1].draw_amount)
-                    game_data["top_card_points"].append(table.cards[len(table.cards) - 1].points)
-                    game_data["player_id"].append(table.turn)
-                    game_data["drawn_cards"].append(0) 
-                    game_data["has_won"].append(0) 
-                    game_data["p_count"].append(p_count)
-                    game_data["dir"].append(table.direction)
+                    game_data = get_game_data(game_data, table, turns, p_count, hand_data, 0)
 
             else:
                 # Draw
@@ -268,27 +262,16 @@ def startGame():
                 for card in drawn:
                     hand.append(card)
 
+                hand_data = hand
                 table.alive[table.turn].cards = hand
-                
+
                 # IF the drawn card is playable:
                 if canPlayerPlay(hand, table):
-
                     table, hand = logic(table, hand)
                     table.alive[table.turn].performance += 1
                 
                 if ENABLE_LOGGING:
-                    game_data["game_turn"].append(turns)
-                    game_data["top_card_id"].append(table.cards[len(table.cards) - 1].card_id)
-                    game_data["top_card_value"].append(str(table.cards[len(table.cards) - 1].value))
-                    game_data["top_card_color"].append(table.cards[len(table.cards) - 1].color)
-                    game_data["top_card_type"].append(table.cards[len(table.cards) - 1].type)
-                    game_data["top_card_draw_amount"].append(table.cards[len(table.cards) - 1].draw_amount)
-                    game_data["top_card_points"].append(table.cards[len(table.cards) - 1].points)
-                    game_data["player_id"].append(table.turn)
-                    game_data["drawn_cards"].append(draw_amount) 
-                    game_data["has_won"].append(0) 
-                    game_data["p_count"].append(p_count)
-                    game_data["dir"].append(table.direction)
+                    game_data = get_game_data(game_data, table, turns, p_count, hand_data, draw_amount)
                 
             turn_backup = table.turn
             

@@ -96,14 +96,75 @@ def logData(data, table_number):
         ('drawn_cards', pa.int64()),
         ('has_won', pa.int64()),
         ('p_count', pa.int64()),
-        ('dir', pa.int64())
+        ('dir', pa.int64()),
+        ('card0', pa.int64()),
+        ('card1', pa.int64()),
+        ('card2', pa.int64()),
+        ('card3', pa.int64()),
+        ('card4', pa.int64()),
+        ('card5', pa.int64()),
+        ('card6', pa.int64()),
+        ('card7', pa.int64()),
+        ('card8', pa.int64()),
+        ('card9', pa.int64()),
+        ('card10', pa.int64()),
+        ('card11', pa.int64()),
+        ('card12', pa.int64()),
+        ('card13', pa.int64()),
+        ('card14', pa.int64()),
+        ('card15', pa.int64()),
+        ('card16', pa.int64()),
+        ('card17', pa.int64()),
+        ('card18', pa.int64()),
+        ('card19', pa.int64()),
+        ('card20', pa.int64()),
+        ('card21', pa.int64()),
+        ('card22', pa.int64()),
+        ('card23', pa.int64()),
+        ('card24', pa.int64()),
+        ('card25', pa.int64()),
+        ('card26', pa.int64()),
+        ('card27', pa.int64()),
+        ('card28', pa.int64()),
+        ('card29', pa.int64())
+        
     ])
     
     table = pa.Table.from_pandas(df, schema=schema)
 
     # Save the table as a Parquet file
     pq.write_table(table, 'dataset/data'+str(table_number)+'.parquet')
+
+def get_game_data(game_data, table, turns, p_count, hand_data, draw_amount):
+
     
+    game_data["game_turn"].append(turns)
+    game_data["top_card_id"].append(table.cards[len(table.cards) - 1].card_id)
+    game_data["top_card_value"].append(str(table.cards[len(table.cards) - 1].value))
+    game_data["top_card_color"].append(table.cards[len(table.cards) - 1].color)
+    game_data["top_card_type"].append(table.cards[len(table.cards) - 1].type)
+    game_data["top_card_draw_amount"].append(table.cards[len(table.cards) - 1].draw_amount)
+    game_data["top_card_points"].append(table.cards[len(table.cards) - 1].points)
+    game_data["player_id"].append(table.turn)
+    game_data["drawn_cards"].append(draw_amount) 
+    game_data["has_won"].append(0) 
+    game_data["p_count"].append(p_count)
+    game_data["dir"].append(table.direction)
+
+    length = len(hand_data)
+
+    for x in range(30):
+        if x >= length:
+            game_data["card"+str(x)].append(0)
+        else:
+            game_data["card"+str(x)].append(hand_data[x].card_id)
+
+        
+        
+
+    
+
+    return game_data
 
 def generateDeck():
     deck = []
