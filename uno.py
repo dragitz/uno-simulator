@@ -140,7 +140,7 @@ def startGame():
         game_data = {
             'game_turn': [],
             'top_card_id': [],
-            'top_card_value': [],
+            #'top_card_value': [],
             'top_card_color': [],
             'top_card_type': [],
             'top_card_draw_amount': [],
@@ -193,7 +193,7 @@ def startGame():
         if ENABLE_LOGGING:
             game_data["game_turn"].append(0)
             game_data["top_card_id"].append(table.cards[len(table.cards) - 1].card_id)
-            game_data["top_card_value"].append(str(table.cards[len(table.cards) - 1].value))
+            #game_data["top_card_value"].append(str(table.cards[len(table.cards) - 1].value))
             game_data["top_card_color"].append(table.cards[len(table.cards) - 1].color)
             game_data["top_card_type"].append(table.cards[len(table.cards) - 1].type)
             game_data["top_card_draw_amount"].append(table.cards[len(table.cards) - 1].draw_amount)
@@ -236,16 +236,15 @@ def startGame():
             # Player's turn starts here
             turns += 1
 
-            hand_data = hand
-
             # IF the current player has a playable card:
             if canPlayerPlay(hand, table):
 
-                table, hand = logic(table, hand)
+                table, hand, game_data = logic(table, hand, game_data, turns, p_count, 0)
                 table.alive[table.turn].performance += 1
                 
                 if ENABLE_LOGGING:
-                    game_data = get_game_data(game_data, table, turns, p_count, hand_data, 0)
+                    #game_data = get_game_data(game_data, table, turns, p_count, hand_data, 0)
+                    pass
 
             else:
                 # Draw
@@ -262,16 +261,12 @@ def startGame():
                 for card in drawn:
                     hand.append(card)
 
-                hand_data = hand
                 table.alive[table.turn].cards = hand
 
                 # IF the drawn card is playable:
                 if canPlayerPlay(hand, table):
-                    table, hand = logic(table, hand)
+                    table, hand, game_data = logic(table, hand, game_data, turns, p_count, draw_amount)
                     table.alive[table.turn].performance += 1
-                
-                if ENABLE_LOGGING:
-                    game_data = get_game_data(game_data, table, turns, p_count, hand_data, draw_amount)
                 
             turn_backup = table.turn
             

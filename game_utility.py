@@ -87,7 +87,7 @@ def logData(data, table_number):
     schema = pa.schema([
         ('game_turn', pa.int64()),
         ('top_card_id', pa.int64()),
-        ('top_card_value', pa.string()),
+        #('top_card_value', pa.string()),
         ('player_id', pa.int64()),
         ('top_card_color', pa.int64()),
         ('top_card_type', pa.int64()),
@@ -140,7 +140,7 @@ def get_game_data(game_data, table, turns, p_count, hand_data, draw_amount):
     
     game_data["game_turn"].append(turns)
     game_data["top_card_id"].append(table.cards[len(table.cards) - 1].card_id)
-    game_data["top_card_value"].append(str(table.cards[len(table.cards) - 1].value))
+    #game_data["top_card_value"].append(str(table.cards[len(table.cards) - 1].value))
     game_data["top_card_color"].append(table.cards[len(table.cards) - 1].color)
     game_data["top_card_type"].append(table.cards[len(table.cards) - 1].type)
     game_data["top_card_draw_amount"].append(table.cards[len(table.cards) - 1].draw_amount)

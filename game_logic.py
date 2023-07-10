@@ -4,12 +4,13 @@ import tensorflow as tf
 import numpy as np
 import trueskill
 
-#from rewards import *
-#from rewards import encode_state, create_q_network
+from game_utility import get_game_data
 
 NUMBER_OF_DECKS = config.NUMBER_OF_DECKS
 NUMBER_OF_PLAYERS = config.NUMBER_OF_PLAYERS
 NUMBER_OF_INITIAL_CARDS = config.NUMBER_OF_INITIAL_CARDS
+
+ENABLE_LOGGING = config.ENABLE_LOGGING
 
 TOTAL_SIMULATIONS = config.TOTAL_SIMULATIONS
 PLAYER_ID = config.PLAYER_ID
@@ -133,13 +134,11 @@ def canCardBePlayed(table, hand, index):
         hand.append(card)
         return canPlayerPlay(hand, table) # will return true of false
 
-def logic(table, hand):
+def logic(table, hand, game_data, turns, p_count, draw_amount):
     
     while canPlayerPlay(hand, table):
         
-        #if not canPlayerPlay(hand, table):
-        #    break
-
+        
         index = playCard(hand, table)
         
         # Should never be hit
@@ -160,6 +159,8 @@ def logic(table, hand):
             print("Suggested: ",index)
             index = int(input("pick index: "))
 
+        hand_data = hand.copy()
+        
         # check if direction must be reversed
         if hand[index].value == "Reverse":
             #hand[index].used = 1
@@ -181,12 +182,15 @@ def logic(table, hand):
         table.cards.append(hand.pop(index))
         table.alive[table.turn].cards = hand
 
+        if ENABLE_LOGGING:
+            game_data = get_game_data(game_data, table, turns, p_count, hand_data, draw_amount)
+
         # check if color must be changed
         if table.cards[len(table.cards) - 1].color == 5:
             table.cards[len(table.cards) - 1].color = changeColor(table)
         
         
-        return table, hand
+        return table, hand, game_data
 
 
 

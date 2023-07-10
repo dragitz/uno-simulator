@@ -1,11 +1,11 @@
 
 # Game settings, may affect simulation time
 NUMBER_OF_DECKS = 1
-NUMBER_OF_PLAYERS = 2
-NUMBER_OF_INITIAL_CARDS = 20
+NUMBER_OF_PLAYERS = 4
+NUMBER_OF_INITIAL_CARDS = 7
 
 SUBDIVIDE_SIMULATIONS = False # to be implemented
-TOTAL_SIMULATIONS = 1  # type 0 to make it endless
+TOTAL_SIMULATIONS = 500  # type 0 to make it endless
 
 # This can speed up the simulation by a lot !  1.5 to 2.5 faster if set to True
 # It will affect the quality of the data
